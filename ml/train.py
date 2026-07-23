@@ -29,22 +29,29 @@ from ml.features import extract_url_features
 from ml.brand_features import brand_similarity_features
 
 
+
+FEATURE_TRAIN_LABEL_COL_CANDIDATES = ("phishing", "label")
+
+
 def build_feature_frame(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    """Expect df with columns: url, label (0 legit, 1 phishing)."""
-    urls = df["url"].astype(str).tolist()
+    """Build feature matrix for training.
 
-    feats = []
-    for u in urls:
-        f1 = extract_url_features(u)
-        f2 = brand_similarity_features(u)
-        # Merge dicts
-        f1.update({k: v for k, v in f2.items() if k != "brand_best_match"})
-        # For brand_best_match string, drop for modeling
-        feats.append(f1)
+    Current project dataset may already contain engineered numeric features
+    (e.g. url_length, n_dots, ..., phishing) rather than raw `url`.
 
-    X = pd.DataFrame(feats)
-    y = df["label"].astype(int)
+    To keep model/explanations compatible with existing `predict.py`, this
+    trainer uses the numeric feature columns already present in the CSV.
+    """
+
+    y_col = next((c for c in FEATURE_TRAIN_LABEL_COL_CANDIDATES if c in df.columns), None)
+    if y_col is None:
+        raise ValueError("Training CSV must contain a label column: 'phishing' or 'label'")
+
+    X = df.drop(columns=[y_col])
+    y = df[y_col].astype(int)
     return X, y
+
+
 
 
 def train_models(X: pd.DataFrame, y: pd.Series, random_state: int = 42):
@@ -63,33 +70,15 @@ def train_models(X: pd.DataFrame, y: pd.Series, random_state: int = 42):
     )
 
     candidates = {
-        "logreg": LogisticRegression(max_iter=2000, class_weight="balanced"),
         "rf": RandomForestClassifier(
-            n_estimators=400,
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=5,
             random_state=random_state,
             class_weight="balanced_subsample",
-        ),
-        "svm": SVC(probability=True, kernel="rbf", class_weight="balanced", random_state=random_state),
-        "xgb": XGBClassifier(
-            n_estimators=600,
-            learning_rate=0.05,
-            max_depth=6,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            reg_lambda=1.0,
-            random_state=random_state,
-            eval_metric="logloss",
-        ),
-        "lgbm": LGBMClassifier(
-            n_estimators=800,
-            learning_rate=0.03,
-            num_leaves=64,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            class_weight="balanced",
-            random_state=random_state,
-        ),
+        )
     }
+
 
     results = {}
     fitted = {}
@@ -121,7 +110,7 @@ def train_models(X: pd.DataFrame, y: pd.Series, random_state: int = 42):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_csv", required=True, help="CSV with columns: url,label")
+    parser.add_argument("--input_csv", required=True, help="CSV with columns: url and phishing (or label)")
     parser.add_argument("--out_dir", default="models")
     parser.add_argument("--best_model", default="lgbm")
     args = parser.parse_args()
@@ -129,28 +118,33 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     df = pd.read_csv(args.input_csv)
-    if "url" not in df.columns or "label" not in df.columns:
-        raise ValueError("CSV must contain columns: url, label")
 
+    # IMPORTANT: training must use the same engineered feature set as prediction/explanations.
     X, y = build_feature_frame(df)
     results, fitted = train_models(X, y)
+
 
     # Save results
     joblib.dump(results, os.path.join(args.out_dir, "metrics.joblib"))
 
-    # Pick best by ROC-AUC
-    best = max(results.items(), key=lambda kv: kv[1]["roc_auc"])[0]
-    chosen = args.best_model if args.best_model in fitted else best
+    # With a single candidate, just save it.
+    chosen = args.best_model if args.best_model in fitted else "rf"
+    if chosen not in fitted:
+        chosen = next(iter(fitted.keys()))
 
     joblib.dump(
         {
             "model": fitted[chosen],
+            # Must match the feature columns used at prediction time
             "feature_columns": X.columns.tolist(),
             "chosen_model": chosen,
             "all_results": results,
         },
+
         os.path.join(args.out_dir, "phishguard_model.joblib"),
+        compress=3,
     )
+
 
     print("Training complete. Chosen model:", chosen)
     print("Top results by ROC-AUC:")

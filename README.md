@@ -235,3 +235,13 @@ This project is intended strictly for cybersecurity research, educational purpos
 Add your preferred open-source license here (MIT, Apache 2.0, etc.).
 
 
+## Future Enhancements
+1. CNN (Convolutional Neural Network) based phishing detection to automatically learn hidden URL patterns and improve detection accuracy.
+2. Random Walk / Graph-based analysis for identifying phishing networks and suspicious domain relationships.
+3. Transformer-based models for advanced phishing email and SMS detection.
+4. Cloud/Web deployment so the application can be accessed online instead of localhost.
+5. Integration with real-time threat intelligence feeds and domain reputation services.
+
+*Note:* The current system uses feature-based real-time phishing detection. CNN and Random Walk are proposed future enhancements and are not implemented in the current version.
+
+
