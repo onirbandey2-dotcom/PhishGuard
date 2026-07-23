@@ -775,7 +775,7 @@ with tab_dataset:
 
     # --- Top controls (clean dashboard layout) ---
     # Same row: Excel path (left) + Preview rows (right)
-    col_path, col_preview = st.columns([3, 2], vertical_alignment="bottom")
+    col_path, col_preview = st.columns([3, 2])
 
     with col_path:
         st.text_input(
